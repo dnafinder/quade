@@ -9,10 +9,11 @@ function quadetest(x,varargin)
 %extension of the Wilcoxon signed rank test and is equivalent to it when the
 %treatments are two.
 %
-% Syntax: 	STATS=quadetest(X)
+% Syntax: 	STATS=quadetest(X,alpha)
 %      
 %     Inputs:
 %           X - data matrix
+%           ALPHA - significance level (default = 0.05).
 %     Outputs:
 %           Quade Statistic
 %           Multiple comparisons (eventually)
