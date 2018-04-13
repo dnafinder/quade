@@ -96,8 +96,7 @@ p=1-fcdf(W,dfn,dfd);
 
 %display results
 tr=repmat('-',1,80); %set the divisor
-disp('QUADE TEST FOR IDENTICAL TREATMENT EFFECTS:')
-disp('TWO-WAY BALANCED, COMPLETE BLOCK DESIGNS')
+disp('QUADE TEST FOR IDENTICAL TREATMENT EFFECTS: TWO-WAY BALANCED, COMPLETE BLOCK DESIGNS')
 disp(tr)
 disp(table(r*c,r,c,'VariableNames',{'Observations','Blocks','Treatments'}))
 disp('QUADE''S STATISTICS: F-statistic approximation')
@@ -114,7 +113,7 @@ if p<alpha
     fprintf('Critical value: %0.4f\n',cv)
     disp('Absolute difference among mean ranks')
     %disp(tril(Rdiff))
-    disp(array2table(tril(Rdiff)))
+    disp(tril(Rdiff))
     disp('Absolute difference > Critical Value')
     disp(tril(mc))
 end
