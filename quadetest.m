@@ -1,119 +1,232 @@
-function quadetest(x,varargin)
-%QUADETEST: Quade test for non parametric two way ANalysis Of VAriance.
-%This function performs the Quade test to analyze unreplicated complete block
-%designs.
-%Dana Quade in 1979 proposed a test that is often more powerful than the
-%Friedman test. It also eliminates block differences but weights the raw data
-%indicate possibly more marked treatment effects. Whereas the Friedman test is
-%basically an extension of the sign test, the Quade test is effectively an
-%extension of the Wilcoxon signed rank test and is equivalent to it when the
-%treatments are two.
+function [stats, mc] = quadetest(x, varargin)
+%QUADETEST Quade test for nonparametric two-way ANOVA (complete block design).
 %
-% Syntax: 	STATS=quadetest(X,alpha)
-%      
-%     Inputs:
-%           X - data matrix
-%           ALPHA - significance level (default = 0.05).
-%     Outputs:
-%           Quade Statistic
-%           Multiple comparisons (eventually)
+%   [STATS, MC] = QUADETEST(X)
+%   [STATS, MC] = QUADETEST(X, 'Alpha', ALPHA, 'PostHoc', POSTHOC, 'Display', DISPLAY)
 %
-%      Example: 
+%   This function performs the Quade test to analyze unreplicated complete
+%   block designs.
 %
-% x=[115 142 36 91 28; 28 31 7 21 6; 220 311 108 51 117; 82 56 24 46 33;...
-% 256 298 124 46 84; 294 322 176 54 86; 98 87 55 84 25];
+%   Dana Quade (1979) proposed a test that is often more powerful than the
+%   Friedman test. It also eliminates block differences but weights the
+%   raw data to emphasise blocks indicating more marked treatment effects.
+%   Whereas the Friedman test is basically an extension of the sign test,
+%   the Quade test is effectively an extension of the Wilcoxon signed rank
+%   test and is equivalent to it when there are only two treatments.
 %
-%           Calling on Matlab the function: quadetest(x)
+%   Inputs:
+%     X        - data matrix (Blocks x Treatments), real, finite, non-NaN.
+%                Each row is a block, each column a treatment.
 %
-%           Answer is:
+%   Name–Value pair arguments:
+%     'Alpha'  - significance level (scalar in (0,1), default = 0.05).
 %
-% QUADE TEST FOR IDENTICAL TREATMENT EFFECTS:
-% TWO-WAY BALANCED, COMPLETE BLOCK DESIGNS
-% --------------------------------------------------------------------------------
-% Number of observation: 35
-% Number of blocks: 7
-% Number of treatments: 5
-% --------------------------------------------------------------------------------
-% F-statistic approximation
-% Quade test statistic W: 10.3788
-% F=W df-num=4 df-denom=24 - p-value (2 tailed): 0.0001
-% --------------------------------------------------------------------------------
-%  
-% POST-HOC MULTIPLE COMPARISONS
-% --------------------------------------------------------------------------------
-% Critical value: 35.6981
-% Absolute difference among mean ranks
-%      0     0     0     0     0
-%     18     0     0     0     0
-%     51    69     0     0     0
-%     69    87    18     0     0
-%     63    81    12     6     0
-% 
-% Absolute difference > Critical Value
-%      0     0     0     0     0
-%      0     0     0     0     0
-%      1     1     0     0     0
-%      1     1     0     0     0
-%      1     1     0     0     0
+%     'PostHoc'- logical-like flag to enable post-hoc multiple comparisons:
+%                true  -> perform multiple comparisons when global H0 is rejected
+%                false -> only perform the global Quade test
+%                (default = true)
 %
-%           Created by Giuseppe Cardillo
-%           giuseppe.    cardillo-edta@poste.it
+%     'Display'- logical-like flag controlling command-window output:
+%                true  -> print tables and messages (default)
+%                false -> run silently, only return outputs
 %
-% To cite this file, this would be an appropriate format:
-% Cardillo G. (2009). QUADETEST: Quade test for non parametric two way ANalysis Of VAriance
-% http://www.mathworks.com/matlabcentral/fileexchange/25926
+%   Outputs:
+%     STATS - structure with test results:
+%       .nObs          - number of observations (blocks * treatments)
+%       .blocks        - number of blocks (rows)
+%       .treatments    - number of treatments (columns)
+%       .W             - Quade statistic
+%       .F_df_num      - numerator degrees of freedom
+%       .F_df_denom    - denominator degrees of freedom
+%       .F_p           - two-tailed p-value for F approximation
+%       .alpha         - significance level
+%       .rejectNull    - true if the treatments do not have identical effects
+%
+%     MC   - structure with post-hoc multiple comparison results (empty if
+%            PostHoc is false or the global null is not rejected):
+%       .method      - 'Quade-Conover-type LSD'
+%       .Rdiff       - matrix of absolute differences among treatment scores
+%       .cv          - critical value for differences
+%       .pvalue      - [] (no exact p-values computed)
+%       .significant - logical matrix (lower triangle) indicating significant
+%                      pairwise differences at the chosen alpha
+%
+%   Example:
+%
+%     x = [115 142  36  91  28;
+%           28  31   7  21   6;
+%          220 311 108  51 117;
+%           82  56  24  46  33;
+%          256 298 124  46  84;
+%          294 322 176  54  86;
+%           98  87  55  84  25];
+%
+%     [stats, mc] = quadetest(x);
+%
+%   Created by Giuseppe Cardillo
+%   giuseppe.cardillo.75@gmail.com
+%
+%   To cite this file, this would be an appropriate format:
+%   Cardillo G. (2009). QUADETEST: Quade test for non parametric two way
+%   ANalysis Of VAriance. Available on GitHub:
+%   https://github.com/dnafinder/quade
 
-%Input Error handling
+% -------------------------------------------------------------------------
+% Input Error handling
+% -------------------------------------------------------------------------
 p = inputParser;
-addRequired(p,'x',@(x) validateattributes(x,{'numeric'},{'2d','real','finite','nonnan','nonempty'}));
-addOptional(p,'alpha',0.05, @(x) validateattributes(x,{'numeric'},{'scalar','real','finite','nonnan','>',0,'<',1}));
-parse(p,x,varargin{:});
-assert(all(x(:,2) == fix(x(:,2))),'Warning: all elements of column 2 of input matrix must be whole numbers')
-alpha=p.Results.alpha;
-clear p
+p.FunctionName = mfilename;
+addRequired(p, 'x', @(z) validateattributes(z, {'numeric'}, ...
+    {'2d','real','finite','nonnan','nonempty'}, mfilename, 'X', 1));
+addParameter(p, 'Alpha',   0.05, @(z) validateattributes(z, {'numeric'}, ...
+    {'scalar','real','finite','nonnan','>',0,'<',1}, mfilename, 'Alpha'));
+addParameter(p, 'PostHoc', true,  @validateLogicalLike);
+addParameter(p, 'Display', true,  @validateLogicalLike);
+parse(p, x, varargin{:});
 
-[r,c]=size(x); %dimension of the input matrix
-R=zeros(r,c); %preallocation
-%For each block, compute the ranks
-for I=1:r
-    R(I,:)=tiedrank(x(I,:));
+x          = p.Results.x;
+alpha      = p.Results.Alpha;
+postHocFlg = logical(normalizeLogicalLike(p.Results.PostHoc));
+displayFlg = logical(normalizeLogicalLike(p.Results.Display));
+
+% -------------------------------------------------------------------------
+% Basic dimensions
+% -------------------------------------------------------------------------
+[r, c] = size(x);            % r = blocks, c = treatments
+nObs   = r * c;
+
+% -------------------------------------------------------------------------
+% Quade transformation
+% -------------------------------------------------------------------------
+R = zeros(r, c);             % ranks within each block
+for ii = 1:r
+    R(ii, :) = tiedrank(x(ii, :));
 end
-%Compute the range of each block and then rank them.
-Q=tiedrank(range(x,2));
-%Compute a modified version of the Friedman matrix
-rij=(R-(c+1)/2).*repmat(Q,1,c);
-Ti=sum(rij);
-T2=sum(Ti.^2);
-rij2=sum(sum(rij.^2));
-T3=T2/r;
-T4=rij2-T3;
-k=r-1;
-W=k*T3/T4; %The Quade statistic.
-%The Quade statistic is approximable with the F distribution.
-dfn=c-1;
-dfd=dfn*k;
-p=1-fcdf(W,dfn,dfd);
 
-%display results
-tr=repmat('-',1,80); %set the divisor
-disp('QUADE TEST FOR IDENTICAL TREATMENT EFFECTS: TWO-WAY BALANCED, COMPLETE BLOCK DESIGNS')
-disp(tr)
-disp(table(r*c,r,c,'VariableNames',{'Observations','Blocks','Treatments'}))
-disp('QUADE''S STATISTICS: F-statistic approximation')
-disp(tr)
-disp(table(W,dfn,dfd,p,'VariableNames',{'W','DF_numerator','DF_denominator','two_tailed_p_value'}))
-if p<alpha
-    disp(' ')
-    disp('POST-HOC MULTIPLE COMPARISONS')
-    disp(tr)
-    tmp=repmat(Ti,c,1); Rdiff=abs(tmp-tmp'); %Generate a matrix with the absolute differences among ranks
-    cv=tinv(1-alpha/2,dfd)*realsqrt(2*r*T4/dfd); %critical value
-    mc=Rdiff>cv; %Find differences greater than critical value
-    %display results
-    fprintf('Critical value: %0.4f\n',cv)
-    disp('Absolute difference among mean ranks')
-    %disp(tril(Rdiff))
-    disp(tril(Rdiff))
-    disp('Absolute difference > Critical Value')
-    disp(tril(mc))
+% Rank the block ranges
+Q = tiedrank(range(x, 2));   % weight for each block (column vector, r x 1)
+
+% Modified Friedman-type matrix
+rij  = (R - (c + 1) / 2) .* repmat(Q, 1, c);  % weighted centred ranks
+Ti   = sum(rij);                              % treatment scores (1 x c)
+T2   = sum(Ti.^2);
+rij2 = sum(sum(rij.^2));
+T3   = T2 / r;
+T4   = rij2 - T3;
+k    = r - 1;
+
+% Quade statistic (F-approximation)
+W   = k * T3 / T4;
+dfn = c - 1;
+dfd = dfn * k;
+pval = 1 - fcdf(W, dfn, dfd);
+
+% -------------------------------------------------------------------------
+% Build STATS structure
+% -------------------------------------------------------------------------
+stats = struct();
+stats.nObs       = nObs;
+stats.blocks     = r;
+stats.treatments = c;
+stats.W          = W;
+stats.F_df_num   = dfn;
+stats.F_df_denom = dfd;
+stats.F_p        = pval;
+stats.alpha      = alpha;
+stats.rejectNull = (pval < alpha);
+
+% -------------------------------------------------------------------------
+% Display results (if requested)
+% -------------------------------------------------------------------------
+mc = struct([]);
+
+if displayFlg
+    tr = repmat('-', 1, 80);
+    disp('QUADE TEST FOR IDENTICAL TREATMENT EFFECTS: TWO-WAY BALANCED, COMPLETE BLOCK DESIGNS');
+    disp(tr);
+    disp(table(nObs, r, c, 'VariableNames', {'Observations','Blocks','Treatments'}));
+    disp('QUADE''S STATISTICS: F-statistic approximation');
+    disp(tr);
+    disp(table(W, dfn, dfd, pval, ...
+        'VariableNames', {'W','DF_numerator','DF_denominator','two_tailed_p_value'}));
+    
+    if ~stats.rejectNull
+        % Nessun commento aggiuntivo nell’originale, ma potresti aggiungerlo se vuoi
+    end
+end
+
+% -------------------------------------------------------------------------
+% Post-hoc multiple comparisons (if requested and global H0 rejected)
+% -------------------------------------------------------------------------
+if stats.rejectNull && postHocFlg
+    if displayFlg
+        disp(' ');
+        disp('POST-HOC MULTIPLE COMPARISONS');
+        tr = repmat('-', 1, 80);
+        disp(tr);
+    end
+    
+    % Generate matrix of absolute differences among treatment scores
+    tmp   = repmat(Ti, c, 1);
+    Rdiff = abs(tmp - tmp');
+    
+    % Critical value (Quade-Conover-type LSD)
+    cv     = tinv(1 - alpha/2, dfd) * realsqrt(2 * r * T4 / dfd);
+    mcMask = Rdiff > cv;
+    
+    if displayFlg
+        fprintf('Critical value: %0.4f\n', cv);
+        disp('Absolute difference among mean ranks');
+        disp(tril(Rdiff));
+        disp('Absolute difference > Critical Value');
+        disp(tril(mcMask));
+    end
+    
+    mc(1).method      = 'Quade-Conover-type LSD';
+    mc(1).Rdiff       = Rdiff;
+    mc(1).cv          = cv;
+    mc(1).pvalue      = [];
+    mc(1).significant = tril(mcMask, -1);
+end
+
+% -------------------------------------------------------------------------
+% Output behaviour
+% -------------------------------------------------------------------------
+if nargout == 0
+    clear stats mc
+end
+
+end
+
+% -------------------------------------------------------------------------
+% Local helpers
+% -------------------------------------------------------------------------
+function tf = validateLogicalLike(x)
+%VALIDATELOGICALLIKE Helper for inputParser: check logical-like values.
+    try
+        normalizeLogicalLike(x);
+        tf = true;
+    catch
+        tf = false;
+    end
+end
+
+function y = normalizeLogicalLike(x)
+%NORMALIZELOGICALLIKE Convert various logical-like inputs to true/false.
+    if islogical(x)
+        y = x;
+    elseif isnumeric(x) && isscalar(x)
+        y = (x ~= 0);
+    elseif ischar(x) || (isstring(x) && isscalar(x))
+        s = lower(char(x));
+        if any(strcmp(s, {'true','on','yes'}))
+            y = true;
+        elseif any(strcmp(s, {'false','off','no'}))
+            y = false;
+        else
+            error('Invalid logical-like value: %s', s);
+        end
+    else
+        error('Invalid type for logical-like option.');
+    end
 end
